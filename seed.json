@@ -1,0 +1,5 @@
+[
+  { "studentName": "Alice Johnson", "rating": 5, "comment": "Great explanations and helpful examples." },
+  { "studentName": "Bob Lee", "rating": 4, "comment": "Very informative but could use more hands-on labs." },
+  { "studentName": "Carol Kim", "rating": 3, "comment": "Good, but pacing was a bit fast." }
+]
