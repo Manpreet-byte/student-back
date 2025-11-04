@@ -5,6 +5,10 @@ const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
+const passport = require('./passport-config');
+const { isAuthenticated } = require('./middleware/auth');
 
 // Load environment variables from .env file
 dotenv.config(); 
@@ -12,10 +16,34 @@ dotenv.config();
 const app = express();
 
 // 2. Middleware
-// Enable CORS to allow your React frontend to connect
-app.use(cors()); 
+// Enable CORS to allow your React frontend to connect with credentials
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+})); 
 // Middleware to parse JSON bodies from incoming requests
 app.use(express.json());
+
+// Session middleware
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ 
+    mongoUrl: process.env.MONGO_URI,
+    collectionName: 'sessions'
+  }),
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
+}));
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
 
 // 3. Database Connection
 const MONGO_URI = process.env.MONGO_URI;
@@ -84,13 +112,56 @@ const improvementSchema = new mongoose.Schema({
 const Improvement = mongoose.model('Improvement', improvementSchema);
 
 
-// 5. API Routes
+// 5. Authentication Routes
+
+// Google OAuth login
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+// Google OAuth callback
+app.get('/auth/google/callback',
+  passport.authenticate('google', { 
+    failureRedirect: 'http://localhost:5173/login',
+    successRedirect: 'http://localhost:5173'
+  })
+);
+
+// Check authentication status
+app.get('/auth/user', (req, res) => {
+  if (req.isAuthenticated()) {
+    res.json({
+      authenticated: true,
+      user: {
+        id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        picture: req.user.picture
+      }
+    });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+// Logout
+app.post('/auth/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.json({ message: 'Logged out successfully' });
+  });
+});
+
+
+// 6. API Routes (Protected)
 
 // API URL: http://localhost:3000/api/feedback
 
 // A. POST /api/feedback (Submitting Feedback)
 // POST feedback
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', isAuthenticated, async (req, res) => {
 	const { studentName, house, rating, comment } = req.body;
 	const newFeedback = new Feedback({ studentName, house, rating, comment });
 	try {
@@ -102,7 +173,7 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 // PUT (update) feedback
-app.put('/api/feedback/:id', async (req, res) => {
+app.put('/api/feedback/:id', isAuthenticated, async (req, res) => {
 	const { id } = req.params;
 	const { studentName, house, rating, comment } = req.body;
 	try {
@@ -121,7 +192,7 @@ app.put('/api/feedback/:id', async (req, res) => {
 });
 
 // DELETE feedback
-app.delete('/api/feedback/:id', async (req, res) => {
+app.delete('/api/feedback/:id', isAuthenticated, async (req, res) => {
 	const { id } = req.params;
 	try {
 		const deleted = await Feedback.findByIdAndDelete(id);
@@ -166,7 +237,7 @@ app.get('/api/improvements', async (req, res) => {
 });
 
 // POST new improvement
-app.post('/api/improvements', async (req, res) => {
+app.post('/api/improvements', isAuthenticated, async (req, res) => {
   const { problem, solution, submittedBy } = req.body;
   const newImprovement = new Improvement({ problem, solution, submittedBy });
   try {
@@ -178,7 +249,7 @@ app.post('/api/improvements', async (req, res) => {
 });
 
 // PUT (update) improvement
-app.put('/api/improvements/:id', async (req, res) => {
+app.put('/api/improvements/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const { problem, solution, submittedBy } = req.body;
   try {
@@ -197,7 +268,7 @@ app.put('/api/improvements/:id', async (req, res) => {
 });
 
 // DELETE improvement
-app.delete('/api/improvements/:id', async (req, res) => {
+app.delete('/api/improvements/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   try {
     const deleted = await Improvement.findByIdAndDelete(id);
